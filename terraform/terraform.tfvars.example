@@ -1,0 +1,8 @@
+project_name        = "analytics"
+aws_region          = "us-east-1"
+environment         = "prod"
+kinesis_shard_count = 2
+dynamodb_billing    = "PAY_PER_REQUEST"
+s3_data_lake_prefix = "events"
+lambda_memory_mb    = 256
+lambda_timeout_sec  = 30

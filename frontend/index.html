@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Analytics · Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ── Tokens ── */
+    :root {
+      --bg: #0a0c10;
+      --surface: #111318;
+      --surface2: #1a1d24;
+      --border: #252830;
+      --accent: #00e5a0;
+      --accent2: #0090ff;
+      --accent3: #ff6b6b;
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --font-sans: 'DM Sans', system-ui, sans-serif;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Noise overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(10,12,16,0.85);
+      backdrop-filter: blur(12px);
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-weight: 600; font-size: 13px;
+      letter-spacing: 0.05em; color: var(--accent);
+    }
+
+    .logo-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(0,229,160,0.4); }
+      50% { opacity: 0.8; transform: scale(1.2); box-shadow: 0 0 0 6px rgba(0,229,160,0); }
+    }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+
+    #status-badge {
+      font-family: var(--font-mono); font-size: 11px;
+      padding: 4px 10px; border-radius: 20px;
+      background: rgba(0,229,160,0.1); color: var(--accent);
+      border: 1px solid rgba(0,229,160,0.2);
+    }
+
+    #last-refresh {
+      font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    }
+
+    /* ── Config Bar ── */
+    .config-bar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .config-bar label { font-size: 12px; color: var(--muted); }
+
+    .config-bar select, .config-bar input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-mono); font-size: 12px;
+      padding: 6px 10px; border-radius: 6px;
+      outline: none; cursor: pointer;
+    }
+
+    .config-bar select:focus, .config-bar input:focus {
+      border-color: var(--accent);
+    }
+
+    .config-bar input { width: 320px; }
+
+    .btn {
+      padding: 7px 16px; border-radius: 6px; border: none;
+      font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent); color: #000;
+    }
+    .btn-primary:hover { background: #00ffb3; transform: translateY(-1px); }
+
+    .btn-outline {
+      background: transparent; color: var(--accent2);
+      border: 1px solid var(--accent2);
+    }
+    .btn-outline:hover { background: rgba(0,144,255,0.1); }
+
+    /* ── Main layout ── */
+    main { padding: 28px 32px; position: relative; z-index: 1; }
+
+    /* ── KPI Cards ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px; margin-bottom: 28px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+      transition: border-color 0.2s, transform 0.2s;
+      position: relative; overflow: hidden;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    }
+    .kpi-card.green::before  { background: var(--accent); }
+    .kpi-card.blue::before   { background: var(--accent2); }
+    .kpi-card.red::before    { background: var(--accent3); }
+    .kpi-card.yellow::before { background: #f0b429; }
+
+    .kpi-card:hover { border-color: rgba(255,255,255,0.1); transform: translateY(-2px); }
+
+    .kpi-label {
+      font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-family: var(--font-mono); font-size: 32px; font-weight: 600;
+      color: var(--text); line-height: 1.1;
+    }
+
+    .kpi-sub {
+      font-size: 11px; color: var(--muted); margin-top: 4px;
+    }
+
+    /* ── Charts ── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px; margin-bottom: 16px;
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+    }
+
+    .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .chart-title {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    .chart-pill {
+      font-family: var(--font-mono); font-size: 10px;
+      padding: 3px 8px; border-radius: 10px;
+      background: var(--surface2); color: var(--muted);
+    }
+
+    canvas { max-width: 100%; }
+
+    /* ── Event feed ── */
+    .feed-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+    }
+
+    .feed-list {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 240px; overflow-y: auto;
+    }
+
+    .feed-list::-webkit-scrollbar { width: 4px; }
+    .feed-list::-webkit-scrollbar-track { background: transparent; }
+    .feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .feed-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 6px;
+      background: var(--surface2);
+      font-family: var(--font-mono); font-size: 11px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .feed-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+
+    .feed-type  { color: var(--accent); min-width: 100px; }
+    .feed-user  { color: var(--accent2); min-width: 80px; }
+    .feed-time  { color: var(--muted); margin-left: auto; }
+
+    /* ── Loading ── */
+    .loading-overlay {
+      position: fixed; inset: 0;
+      background: var(--bg); z-index: 100;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+    }
+
+    .loading-spinner {
+      width: 36px; height: 36px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+      font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .charts-grid { grid-template-columns: 1fr; }
+      header, .config-bar, main { padding-left: 16px; padding-right: 16px; }
+      .config-bar input { width: 200px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loading">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Connecting to analytics stream…</div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    REALTIME / ANALYTICS
+  </div>
+  <div class="header-right">
+    <span id="status-badge">● LIVE</span>
+    <span id="last-refresh">—</span>
+  </div>
+</header>
+
+<div class="config-bar">
+  <label>API</label>
+  <input id="api-url" type="text" placeholder="https://<id>.execute-api.us-east-1.amazonaws.com" />
+  <label>Event</label>
+  <select id="event-type-select">
+    <option value="page_view">page_view</option>
+    <option value="click">click</option>
+    <option value="purchase">purchase</option>
+    <option value="sign_up">sign_up</option>
+  </select>
+  <label>Window</label>
+  <select id="hours-select">
+    <option value="6">6 h</option>
+    <option value="24" selected>24 h</option>
+    <option value="48">48 h</option>
+    <option value="168">7 d</option>
+  </select>
+  <button class="btn btn-primary" id="connect-btn">Connect</button>
+  <button class="btn btn-outline" id="demo-btn">Demo Mode</button>
+</div>
+
+<main>
+  <div class="kpi-grid">
+    <div class="kpi-card green">
+      <div class="kpi-label">Total Events</div>
+      <div class="kpi-value" id="kpi-total">—</div>
+      <div class="kpi-sub" id="kpi-total-sub">last window</div>
+    </div>
+    <div class="kpi-card blue">
+      <div class="kpi-label">Unique Users</div>
+      <div class="kpi-value" id="kpi-users">—</div>
+      <div class="kpi-sub">estimated</div>
+    </div>
+    <div class="kpi-card red">
+      <div class="kpi-label">Avg Duration</div>
+      <div class="kpi-value" id="kpi-duration">—</div>
+      <div class="kpi-sub">ms per event</div>
+    </div>
+    <div class="kpi-card yellow">
+      <div class="kpi-label">Events / Hour</div>
+      <div class="kpi-value" id="kpi-rate">—</div>
+      <div class="kpi-sub">current hour</div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Event Volume</span>
+        <span class="chart-pill" id="volume-label">hourly</span>
+      </div>
+      <canvas id="volumeChart" height="200"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Unique Users</span>
+        <span class="chart-pill">per hour</span>
+      </div>
+      <canvas id="usersChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="charts-grid" style="grid-template-columns: 1fr 1fr">
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Avg Duration (ms)</span>
+        <span class="chart-pill">trend</span>
+      </div>
+      <canvas id="durationChart" height="200"></canvas>
+    </div>
+    <div class="feed-card">
+      <div class="chart-header">
+        <span class="chart-title">Live Event Feed</span>
+        <span class="chart-pill" id="feed-count">0 events</span>
+      </div>
+      <div class="feed-list" id="feed-list">
+        <div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">
+          Connect or enable Demo Mode to see live events
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
